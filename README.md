@@ -70,6 +70,7 @@ Clone the repository:
 ```bash
 git clone https://github.com/jarrellimdata/epl2025-analysis.git
 cd epl2025-analysis
+```
 
 ## Credits
 - Data provided by Football Data
