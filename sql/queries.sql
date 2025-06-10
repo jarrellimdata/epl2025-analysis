@@ -2,8 +2,7 @@ SELECT * FROM EPL2025.Matches;
 
 --------------------------------------------------------------
 --------------------------------------------------------------
--- Q1: Do certain referees influence match behavior?
--- Which referee officiated the most matches ; and what is the average total number of fouls committed in those matches?
+-- Q1: Which referees officiate the most matches, and do they call more fouls and issue more cards than others?
 
 SELECT TOP 10 
     referee,
@@ -38,6 +37,12 @@ ORDER BY
 --------------------------------------------------------------
 --------------------------------------------------------------
 -- Q2. What predicts a high-scoring match?
+
+SELECT 
+    ROUND(AVG(CAST(total_goals AS FLOAT)), 2) AS avg_goals_per_match
+FROM 
+    EPL2025.Matches;
+
 SELECT 
     CASE 
         WHEN total_goals >= 3 THEN 'High Scoring'
@@ -74,10 +79,10 @@ GROUP BY
 -- Q4. How do cards impact match outcomes?
 SELECT 
     full_time_result,
-    AVG(home_yellow_cards) AS avg_home_yellow,
-    AVG(away_yellow_cards) AS avg_away_yellow,
-    AVG(home_red_cards) AS avg_home_red,
-    AVG(away_red_cards) AS avg_away_red
+    CAST(AVG(CAST(home_yellow_cards AS FLOAT)) AS DECIMAL(4,2)) AS avg_home_yellow,
+    CAST(AVG(CAST(away_yellow_cards AS FLOAT)) AS DECIMAL(4,2)) AS avg_away_yellow,
+    CAST(AVG(CAST(home_red_cards AS FLOAT)) AS DECIMAL(4,2)) AS avg_home_red,
+    CAST(AVG(CAST(away_red_cards AS FLOAT)) AS DECIMAL(4,2)) AS avg_away_red
 FROM 
     EPL2025.Matches
 GROUP BY 
@@ -93,36 +98,54 @@ SELECT TOP 10
     ROUND(
         (SUM(home_shots_on_target) + SUM(away_shots_on_target)) * 1.0 /
         NULLIF(SUM(home_shots) + SUM(away_shots), 0), 3
-    ) AS overall_accuracy
+    ) AS overall_accuracy,
+    SUM(home_shots + away_shots) AS total_shots,
+    ROUND(
+        SUM(
+            CASE
+                WHEN (full_time_result = 'H' AND team_name = home_team) OR
+                     (full_time_result = 'A' AND team_name = away_team)
+                THEN 1 ELSE 0
+            END
+        ) * 1.0 / COUNT(*), 3
+    ) AS win_rate
 FROM (
     SELECT 
         home_team AS team_name,
         home_shots_on_target, home_shots,
-        0 AS away_shots_on_target, 0 AS away_shots
+        0 AS away_shots_on_target, 0 AS away_shots,
+        full_time_result,
+        home_team,
+        away_team
     FROM EPL2025.Matches
     UNION ALL
     SELECT 
         away_team AS team_name,
         0 AS home_shots_on_target, 0 AS home_shots,
-        away_shots_on_target, away_shots
+        away_shots_on_target, away_shots,
+        full_time_result,
+        home_team,
+        away_team
     FROM EPL2025.Matches
 ) AS Combined
 GROUP BY team_name
 ORDER BY overall_accuracy DESC;
 
+
+
 --------------------------------------------------------------
 --------------------------------------------------------------
--- Shot Accuracy vs. Match Outcome
+-- Shot Accuracy vs. Match Outcome (including draws)
 SELECT
-    home_win,
+    full_time_result,
     ROUND(AVG(CAST(home_shots_on_target AS FLOAT) / NULLIF(home_shots, 0)), 2) AS avg_home_accuracy,
     ROUND(AVG(CAST(away_shots_on_target AS FLOAT) / NULLIF(away_shots, 0)), 2) AS avg_away_accuracy
 FROM 
     EPL2025.Matches
 GROUP BY 
-    home_win
+    full_time_result
 ORDER BY 
-    home_win DESC;
+    full_time_result;
 
 --------------------------------------------------------------
 --------------------------------------------------------------
@@ -155,12 +178,14 @@ ORDER BY
     total_goals DESC;
 --------------------------------------------------------------
 --------------------------------------------------------------
--- 🕒 5. Second Half Impact vs. Result
+-- Second Half Impact vs. Result
 -- Did teams improve or decline after halftime?
 SELECT
     second_half_impact,
     COUNT(*) AS match_count,
-    ROUND(AVG(CASE WHEN home_win = 1 THEN 1 ELSE 0 END), 2) AS win_rate_decimal
+    ROUND(AVG(CASE WHEN home_win = 1 THEN 1.0 ELSE 0 END) * 100, 2) AS home_win_pct,
+    ROUND(AVG(CASE WHEN away_win = 1 THEN 1.0 ELSE 0 END) * 100, 2) AS away_win_pct,
+    ROUND(AVG(CASE WHEN home_win = 0 AND away_win = 0 THEN 1.0 ELSE 0 END) * 100, 2) AS draw_pct
 FROM 
     EPL2025.Matches
 GROUP BY 
@@ -182,17 +207,26 @@ ORDER BY
 
 --------------------------------------------------------------
 --------------------------------------------------------------
--- Relationship between second_half_impact and home_team_won
+-- Q8: Relationship between second_half_impact and match outcomes
+WITH MatchCounts AS (
+    SELECT COUNT(*) AS total_matches FROM EPL2025.Matches
+)
 SELECT
-    second_half_impact,
+    m.second_half_impact,
     COUNT(*) AS match_count,
-    ROUND(AVG(CAST(home_team_won AS FLOAT)) * 100, 2) AS home_win_rate_pct
+    ROUND(COUNT(*) * 100.0 / mc.total_matches, 2) AS pct_of_games,
+    ROUND(AVG(CAST(home_team_won AS FLOAT)) * 100, 2) AS home_win_rate_pct,
+    ROUND(AVG(CAST(away_team_won AS FLOAT)) * 100, 2) AS away_win_rate_pct,
+    ROUND(AVG(CASE WHEN home_team_won = 0 AND away_team_won = 0 THEN 1 ELSE 0 END) * 100, 2) AS draw_rate_pct
 FROM 
-    EPL2025.Matches
+    EPL2025.Matches m
+    CROSS JOIN MatchCounts mc
 GROUP BY 
-    second_half_impact
+    m.second_half_impact,
+    mc.total_matches
 ORDER BY 
-    second_half_impact DESC;
+    m.second_half_impact DESC;
+
 
 --------------------------------------------------------------
 --------------------------------------------------------------
@@ -245,17 +279,3 @@ GROUP BY
     END
 --------------------------------------------------------------
 --------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
